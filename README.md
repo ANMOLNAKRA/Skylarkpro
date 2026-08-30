@@ -1,109 +1,145 @@
-# Skylark Drones — monday.com Business Intelligence Agent
+# Skylark Drones — AI Business Intelligence Agent
 
-A conversational AI agent that answers founder-level business questions by
-querying live data from two monday.com boards (Work Orders, Deals), cleaning
-it on the fly, and reasoning over it with an LLM.
+An AI-powered founder-level Business Intelligence agent that connects to
+Monday.com and answers conversational questions about sales pipeline,
+revenue, work orders, operational performance, sectors, customers, and
+business risks.
 
-**Live demo:** _[add your Vercel URL after deploying]_
-**Repo:** _[add your GitHub URL]_
+The agent dynamically reads data from two Monday.com boards:
+
+- Deals Board — sales pipeline and commercial data
+- Work Orders Board — project execution and operational data
+
+The system is designed to handle messy real-world business data, including
+missing values, inconsistent dates, inconsistent naming, and incomplete
+records.
 
 ---
 
-## Architecture
+## 1. Problem Statement
 
-```
-Browser (chat UI)
-      │
-      ▼
-Next.js API route  /api/chat
-      │
-      ▼
-Gemini 2.0 Flash (function calling)
-      │  decides when to call tools
-      ▼
-Tool: get_work_orders / get_deals
-      │
-      ▼
-monday.com GraphQL API (read-only)
-      │  raw items + column_values
-      ▼
-Data cleaning layer (lib/dataClean.ts)
-      │  strips junk rows, normalizes nulls/dates/numbers
-      ▼
-Cleaned JSON handed back to Gemini → reasons over it → conversational answer
-```
+Business data is often distributed across multiple operational systems and
+contains missing or inconsistent values.
 
-**Why this shape:**
-- **Single Next.js app** (UI + API in one deploy) — fastest to ship and host on
-  Vercel with zero extra infra.
-- **Board discovery by name, not hardcoded IDs** (`lib/monday.ts::findBoardId`) —
-  satisfies "do not hardcode CSV data; query monday.com dynamically." The agent
-  looks up boards by name substring match ("deal", "work order") every
-  request (with a 5-minute in-memory cache to avoid hammering the API on
-  every turn of a conversation).
-- **Cleaning happens in code, not in the prompt** — deterministic, testable,
-  and keeps token usage down. The LLM receives already-clean JSON and focuses
-  purely on business reasoning, not on guessing what `""` or a duplicate
-  header row means.
-- **Gemini for reasoning** — free tier, function calling support, large
-  context window (comfortably fits both boards' full cleaned data — ~520
-  records total — so the model reasons over complete data rather than a
-  sample).
+A founder may ask questions such as:
 
-## Setup
+- "How is our pipeline looking this quarter?"
+- "Which sectors have the highest pipeline value?"
+- "Which customers are at risk?"
+- "Which projects have operational delays?"
+- "How much revenue have we generated?"
+- "Which sectors have the highest overdue billing?"
+- "What should I focus on this week?"
 
-### 1. monday.com
+The agent interprets these questions, retrieves the required information
+from Monday.com, cleans and normalizes the data, performs the required
+analysis, and returns concise founder-level insights rather than only raw
+records.
 
-1. Create a free monday.com account.
-2. Import the two provided CSVs as **separate boards** via
-   `+ Add → Import data → Excel/CSV`. Keep the original column headers —
-   the cleaning layer uses keyword heuristics (`date`, `amount`, `value`,
-   `quantity` in the header) to decide how to parse each column.
-3. Name the boards so they contain the words "deal" and "work order"
-   somewhere in the name (e.g. `skylark_deals`, `skylark_work_orders`).
-4. Get a personal API token: profile avatar → **Developers** → **API token**.
+---
 
-### 2. Gemini
+# 2. Core Features
 
-Get a free API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-(no credit card required).
+## Monday.com Integration
 
-### 3. Local development
+The application connects to Monday.com using its API.
 
-```bash
-npm install
-cp .env.local.example .env.local
-# fill in MONDAY_API_TOKEN and GEMINI_API_KEY in .env.local
-npm run dev
-```
+It reads data dynamically from:
 
-### 4. Deploy to Vercel
+1. Deals Board
+2. Work Orders Board
 
-1. Push this repo to GitHub.
-2. Import the repo in Vercel ([vercel.com/new](https://vercel.com/new)).
-3. Add environment variables `MONDAY_API_TOKEN` and `GEMINI_API_KEY` in the
-   Vercel project settings.
-4. Deploy.
+The application does NOT hardcode the CSV dataset.
 
-## Project structure
+All business metrics and answers are generated from the current data
+available in Monday.com.
 
-```
-app/
-  page.tsx            chat UI
-  api/chat/route.ts   chat endpoint — runs the agent loop
-lib/
-  monday.ts           monday.com GraphQL client (board discovery, pagination)
-  dataClean.ts         normalization: nulls, dates, numbers, junk-row filtering
-  agent.ts             Gemini function-calling orchestration + system prompt
-```
+### Access Mode
 
-## Known limitations / what's not handled
+The Monday.com integration is strictly READ-ONLY.
 
-See `DECISION_LOG.md` for the full breakdown of assumptions, trade-offs, and
-what we'd improve with more time.
+The agent does not:
 
-## AI tools used
+- Create items
+- Update items
+- Delete items
+- Modify board data
+- Change column values
 
-Built with assistance from Claude (Anthropic) for scaffolding, data-cleaning
-logic design, and debugging; Gemini 2.0 Flash powers the deployed agent's
-reasoning at runtime.
+---
+
+# 3. Architecture
+
+```text
+                    ┌──────────────────────┐
+                    │      Founder/User    │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ Conversational UI    │
+                    │      / Chat          │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ Query Understanding  │
+                    │                      │
+                    │ Intent Detection     │
+                    │ Entity Extraction    │
+                    │ Time/Quarter Filter  │
+                    │ Clarification        │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ Monday.com Data      │
+                    │ Retrieval Layer      │
+                    └──────────┬───────────┘
+                               │
+                    ┌──────────┴───────────┐
+                    ▼                      ▼
+          ┌─────────────────┐    ┌─────────────────┐
+          │   Deals Board   │    │ Work Orders     │
+          │                 │    │ Board           │
+          └────────┬────────┘    └────────┬────────┘
+                   │                      │
+                   └──────────┬───────────┘
+                              ▼
+                    ┌──────────────────────┐
+                    │ Data Resilience      │
+                    │ & Normalization      │
+                    │                      │
+                    │ Null handling        │
+                    │ Date normalization   │
+                    │ Text normalization   │
+                    │ Missing data checks  │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ BI / Analytics Layer │
+                    │                      │
+                    │ Revenue              │
+                    │ Pipeline             │
+                    │ Sector performance   │
+                    │ Operations           │
+                    │ Risks / delays       │
+                    │ Data quality         │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ AI Insight Generator │
+                    │                      │
+                    │ Findings             │
+                    │ Context              │
+                    │ Risks                │
+                    │ Recommendations      │
+                    │ Caveats              │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ Founder-level Answer │
+                    └──────────────────────┘
