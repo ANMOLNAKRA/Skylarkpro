@@ -248,26 +248,21 @@ export default function Home() {
               </div>
             </div>
           )}
+          {messages.length <= 1 && (
+            <div className="pt-2">
+              <p className="text-[10px] text-slate-500 mb-2.5 font-bold px-1 uppercase tracking-wider">Suggested Queries</p>
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                {SUGGESTIONS.map((s) => (
+                  <button key={s} onClick={() => send(s)} className="flex-1 text-left text-xs rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900 hover:border-slate-700 px-4 py-3.5 text-slate-300 hover:text-white transition-all shadow-sm hover:shadow-indigo-500/5 cursor-pointer active:scale-[0.98]">
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
       </div>
-
-      {messages.length <= 1 && (
-        <div className="mx-auto max-w-2xl w-full px-4 pb-4">
-          <p className="text-[10px] text-slate-500 mb-2.5 font-bold px-1 uppercase tracking-wider">Suggested Queries</p>
-          <div className="flex flex-col sm:flex-row gap-2.5">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => send(s)}
-                className="flex-1 text-left text-xs rounded-xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900 hover:border-slate-700 px-4 py-3.5 text-slate-300 hover:text-white transition-all shadow-sm hover:shadow-indigo-500/5 cursor-pointer active:scale-[0.98]"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="border-t border-slate-900 bg-slate-950/95 backdrop-blur-md px-4 py-4.5">
         <form

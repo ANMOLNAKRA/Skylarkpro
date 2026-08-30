@@ -196,12 +196,54 @@ export async function tryFallbackCalculation(query: string): Promise<string | nu
   const isWorkOrdersQuery = q.includes("work order") || q.includes("projects count") || q.includes("number of work");
   const isSectorQuery = q.includes("sector") || q.includes("industry");
   const isDelayedQuery = q.includes("delay") || q.includes("bottleneck") || q.includes("stuck") || q.includes("stale");
+  const isOverdueBillingQuery = isRevenueQuery && (q.includes("overdue") || q.includes("unpaid") || q.includes("receivable"));
 
   if (!isPipelineQuery && !isRevenueQuery && !isWorkOrdersQuery && !isSectorQuery && !isDelayedQuery) {
     return null; // Query is complex and requires LLM synthesis
   }
 
   try {
+    if (isOverdueBillingQuery) {
+      const woResult = await fetchAndCleanBoard(WORK_ORDERS_BOARD_HINT, "workOrders");
+      const sectorSummary: Record<string, { count: number; unbilled: number; receivable: number }> = {};
+
+      for (const workOrder of woResult.records) {
+        const invoiceStatus = String(workOrder.fields["Invoice Status"] || "").toLowerCase();
+        const billingStatus = String(workOrder.fields["Billing Status"] || "").toLowerCase();
+        const billedStatus = String(workOrder.fields["WO Status (billed)"] || "").toLowerCase();
+        const executionStatus = String(workOrder.fields["Execution Status"] || "").toLowerCase();
+        const hasOverdueBilling =
+          invoiceStatus.includes("stuck") ||
+          billingStatus.includes("stuck") ||
+          (executionStatus.includes("completed") &&
+            (invoiceStatus.includes("not billed") || invoiceStatus.includes("partially billed") || billedStatus === "open"));
+
+        if (!hasOverdueBilling) continue;
+
+        const sector = String(workOrder.fields["Sector"] || "Unspecified").trim() || "Unspecified";
+        const summary = sectorSummary[sector] || { count: 0, unbilled: 0, receivable: 0 };
+        summary.count += 1;
+        summary.unbilled += Number(workOrder.fields["Amount to be billed in Rs. (Exl. of GST) (Masked)"]) || 0;
+        summary.receivable += Number(workOrder.fields["Amount Receivable (Masked)"]) || 0;
+        sectorSummary[sector] = summary;
+      }
+
+      const sectors = Object.entries(sectorSummary).sort((a, b) => b[1].count - a[1].count);
+      if (sectors.length === 0) {
+        return "No Work Orders currently match the overdue-billing criteria. This checks stuck billing states and completed work that remains unbilled or partially billed.";
+      }
+
+      const lines = sectors.slice(0, 5).map(([sector, summary]) => {
+        const amounts = [
+          summary.unbilled > 0 ? `INR ${summary.unbilled.toLocaleString()} unbilled` : "",
+          summary.receivable > 0 ? `INR ${summary.receivable.toLocaleString()} receivable` : "",
+        ].filter(Boolean).join("; ");
+        return `- **${sector}**: ${summary.count} overdue Work Order${summary.count === 1 ? "" : "s"}${amounts ? ` (${amounts})` : ""}`;
+      });
+
+      return `### Overdue Billing by Sector\n${lines.join("\n")}\n\nBased on ${woResult.records.length} live Work Order records. Overdue items include stuck billing and completed work that has not been fully billed.`;
+    }
+
     const dealsResult = await fetchAndCleanBoard(DEALS_BOARD_HINT, "deals");
     const woResult = await fetchAndCleanBoard(WORK_ORDERS_BOARD_HINT, "workOrders");
 
